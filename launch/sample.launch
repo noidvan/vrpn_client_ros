@@ -2,7 +2,7 @@
 
   <arg name="server" default="localhost"/>
 
-  <node pkg="vicon_vrpn_client_ros" type="vrpn_client_node" name="vrpn_client_node" output="screen">
+  <node pkg="vrpn_client_ros" type="vrpn_client_node" name="vrpn_client_node" output="screen">
     <rosparam subst_value="true">
       server: $(arg server)
       port: 3883
