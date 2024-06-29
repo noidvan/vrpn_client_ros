@@ -14,6 +14,7 @@
   <depend>roscpp</depend>
   <depend>tf2_ros</depend>
   <depend>vrpn</depend>
+  <depend>nav_msgs</depend>
 
   <test_depend>roslaunch</test_depend>
   <test_depend>roslint</test_depend>

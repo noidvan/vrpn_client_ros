@@ -1,13 +1,16 @@
 cmake_minimum_required(VERSION 2.8.3)
 project(vrpn_client_ros)
 
-find_package(catkin REQUIRED COMPONENTS geometry_msgs roscpp tf2_ros)
+# fix for FindVRPN.cmake unable to find pthreads
+set(CMAKE_HAVE_THREADS_LIBRARY 1)
+
+find_package(catkin REQUIRED COMPONENTS geometry_msgs nav_msgs roscpp tf2_ros)
 find_package(VRPN REQUIRED)
 
 catkin_package(
   INCLUDE_DIRS include
   LIBRARIES vrpn_client_ros
-  CATKIN_DEPENDS geometry_msgs tf2_ros
+  CATKIN_DEPENDS geometry_msgs tf2_ros nav_msgs
   DEPENDS VRPN
 )
 

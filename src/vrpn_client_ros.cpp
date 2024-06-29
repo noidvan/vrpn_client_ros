@@ -115,7 +115,8 @@ namespace vrpn_client_ros
     nh.param<bool>("broadcast_tf", broadcast_tf_, false);
     nh.param<bool>("process_sensor_id", process_sensor_id_, false);
 
-    pose_msg_.header.frame_id = twist_msg_.header.frame_id = accel_msg_.header.frame_id = transform_stamped_.header.frame_id = frame_id;
+    odom_msg_.header.frame_id = pose_msg_.header.frame_id = transform_stamped_.header.frame_id = frame_id;
+    odom_msg_.child_frame_id = twist_msg_.header.frame_id = accel_msg_.header.frame_id = tracker_name;
 
     if (create_mainloop_timer)
     {
@@ -144,6 +145,7 @@ namespace vrpn_client_ros
     VrpnTrackerRos *tracker = static_cast<VrpnTrackerRos *>(userData);
 
     ros::Publisher *pose_pub;
+    ros::Publisher* odom_pub;
     std::size_t sensor_index(0);
     ros::NodeHandle nh = tracker->output_nh_;
     
@@ -158,22 +160,32 @@ namespace vrpn_client_ros
       tracker->pose_pubs_.resize(sensor_index + 1);
     }
     pose_pub = &(tracker->pose_pubs_[sensor_index]);
+    odom_pub = &(tracker->odom_pubs_[sensor_index]);
 
     if (pose_pub->getTopic().empty())
     {
       *pose_pub = nh.advertise<geometry_msgs::PoseStamped>("pose", 1);
     }
 
-    if (pose_pub->getNumSubscribers() > 0)
+    if (odom_pub->getTopic().empty())
+    {
+      *odom_pub = nh.advertise<nav_msgs::Odometry>("odom", 1);
+    }
+
+    // if (pose_pub->getNumSubscribers() > 0)
     {
       if (tracker->use_server_time_)
       {
         tracker->pose_msg_.header.stamp.sec = tracker_pose.msg_time.tv_sec;
         tracker->pose_msg_.header.stamp.nsec = tracker_pose.msg_time.tv_usec * 1000;
+
+        tracker->odom_msg_.header.stamp.sec = tracker_pose.msg_time.tv_sec;
+        tracker->odom_msg_.header.stamp.nsec = tracker_pose.msg_time.tv_usec * 1000;
       }
       else
       {
         tracker->pose_msg_.header.stamp = ros::Time::now();
+        tracker->odom_msg_.header.stamp = ros::Time::now();
       }
 
       tracker->pose_msg_.pose.position.x = tracker_pose.pos[0];
@@ -185,7 +197,11 @@ namespace vrpn_client_ros
       tracker->pose_msg_.pose.orientation.z = tracker_pose.quat[2];
       tracker->pose_msg_.pose.orientation.w = tracker_pose.quat[3];
 
+      tracker->odom_msg_.pose.pose = tracker->pose_msg_.pose;
+      tracker->odom_msg_.twist.twist = tracker->twist_msg_.twist;
+
       pose_pub->publish(tracker->pose_msg_);
+      odom_pub->publish(tracker->odom_msg_);
     }
 
     if (tracker->broadcast_tf_)
@@ -249,7 +265,7 @@ namespace vrpn_client_ros
       *twist_pub = nh.advertise<geometry_msgs::TwistStamped>("twist", 1);
     }
 
-    if (twist_pub->getNumSubscribers() > 0)
+    // if (twist_pub->getNumSubscribers() > 0)
     {
       if (tracker->use_server_time_)
       {
@@ -304,7 +320,7 @@ namespace vrpn_client_ros
       *accel_pub = nh.advertise<geometry_msgs::TwistStamped>("accel", 1);
     }
 
-    if (accel_pub->getNumSubscribers() > 0)
+    // if (accel_pub->getNumSubscribers() > 0)
     {
       if (tracker->use_server_time_)
       {

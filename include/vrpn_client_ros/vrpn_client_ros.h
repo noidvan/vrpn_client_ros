@@ -39,6 +39,7 @@
 #include "geometry_msgs/TwistStamped.h"
 #include "geometry_msgs/AccelStamped.h"
 #include "geometry_msgs/TransformStamped.h"
+#include "nav_msgs/Odometry.h"
 
 #include <vrpn_Tracker.h>
 #include <vrpn_Connection.h>
@@ -78,7 +79,7 @@ namespace vrpn_client_ros
 
   private:
     TrackerRemotePtr tracker_remote_;
-    std::vector<ros::Publisher> pose_pubs_, twist_pubs_, accel_pubs_;
+    std::vector<ros::Publisher> pose_pubs_, twist_pubs_, accel_pubs_, odom_pubs_;
     ros::NodeHandle output_nh_;
     bool use_server_time_, broadcast_tf_, process_sensor_id_;
     std::string tracker_name;
@@ -89,6 +90,7 @@ namespace vrpn_client_ros
     geometry_msgs::TwistStamped twist_msg_;
     geometry_msgs::AccelStamped accel_msg_;
     geometry_msgs::TransformStamped transform_stamped_;
+    nav_msgs::Odometry odom_msg_;
 
     void init(std::string tracker_name, ros::NodeHandle nh, bool create_mainloop_timer);
 
