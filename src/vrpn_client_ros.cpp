@@ -159,6 +159,12 @@ namespace vrpn_client_ros
     {
       tracker->pose_pubs_.resize(sensor_index + 1);
     }
+
+    if (tracker->odom_pubs_.size() <= sensor_index)
+    {
+      tracker->odom_pubs_.resize(sensor_index + 1);
+    }
+
     pose_pub = &(tracker->pose_pubs_[sensor_index]);
     odom_pub = &(tracker->odom_pubs_[sensor_index]);
 
