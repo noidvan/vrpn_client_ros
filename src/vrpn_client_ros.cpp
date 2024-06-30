@@ -34,6 +34,7 @@
 #include "tf2/LinearMath/Quaternion.h"
 #include "tf2/LinearMath/Matrix3x3.h"
 #include "tf2_ros/transform_broadcaster.h"
+#include "tf2/convert.h"
 
 #include <vector>
 #include <unordered_set>
@@ -114,9 +115,16 @@ namespace vrpn_client_ros
     nh.param<bool>("use_server_time", use_server_time_, false);
     nh.param<bool>("broadcast_tf", broadcast_tf_, false);
     nh.param<bool>("process_sensor_id", process_sensor_id_, false);
+    nh.param<bool>("twist_accel_in_body_frame", twist_accel_in_body_frame_, true);
 
     odom_msg_.header.frame_id = pose_msg_.header.frame_id = transform_stamped_.header.frame_id = frame_id;
-    odom_msg_.child_frame_id = twist_msg_.header.frame_id = accel_msg_.header.frame_id = tracker_name;
+
+    if (twist_accel_in_body_frame_ && !process_sensor_id_) {
+      odom_msg_.child_frame_id = twist_msg_.header.frame_id = accel_msg_.header.frame_id = this->tracker_name;
+    } else {
+      odom_msg_.child_frame_id = twist_msg_.header.frame_id = accel_msg_.header.frame_id = frame_id;
+    }
+    
 
     if (create_mainloop_timer)
     {
@@ -153,6 +161,10 @@ namespace vrpn_client_ros
     {
       sensor_index = static_cast<std::size_t>(tracker_pose.sensor);
       nh = ros::NodeHandle(tracker->output_nh_, std::to_string(tracker_pose.sensor));
+
+      if (tracker->twist_accel_in_body_frame_) {
+        tracker->odom_msg_.child_frame_id = tracker->tracker_name + "/" + std::to_string(tracker_pose.sensor);
+      }
     }
     
     if (tracker->pose_pubs_.size() <= sensor_index)
@@ -210,9 +222,8 @@ namespace vrpn_client_ros
       odom_pub->publish(tracker->odom_msg_);
     }
 
-    if (tracker->broadcast_tf_)
+    if (tracker->broadcast_tf_ || tracker->twist_accel_in_body_frame_)
     {
-      static tf2_ros::TransformBroadcaster tf_broadcaster;
 
       if (tracker->use_server_time_)
       {
@@ -242,7 +253,10 @@ namespace vrpn_client_ros
       tracker->transform_stamped_.transform.rotation.z = tracker_pose.quat[2];
       tracker->transform_stamped_.transform.rotation.w = tracker_pose.quat[3];
 
-      tf_broadcaster.sendTransform(tracker->transform_stamped_);
+      if (tracker->broadcast_tf_) {
+        static tf2_ros::TransformBroadcaster tf_broadcaster;
+        tf_broadcaster.sendTransform(tracker->transform_stamped_);
+      }
     }
   }
 
@@ -258,6 +272,10 @@ namespace vrpn_client_ros
     {
       sensor_index = static_cast<std::size_t>(tracker_twist.sensor);
       nh = ros::NodeHandle(tracker->output_nh_, std::to_string(tracker_twist.sensor));
+      
+      if (tracker->twist_accel_in_body_frame_) {
+        tracker->twist_msg_.header.frame_id = tracker->tracker_name + "/" + std::to_string(tracker_twist.sensor);
+      }
     }
     
     if (tracker->twist_pubs_.size() <= sensor_index)
@@ -283,20 +301,56 @@ namespace vrpn_client_ros
         tracker->twist_msg_.header.stamp = ros::Time::now();
       }
 
-      tracker->twist_msg_.twist.linear.x = tracker_twist.vel[0];
-      tracker->twist_msg_.twist.linear.y = tracker_twist.vel[1];
-      tracker->twist_msg_.twist.linear.z = tracker_twist.vel[2];
+      tf2::Matrix3x3 rot_mat(tf2::Quaternion(tracker_twist.vel_quat[0], tracker_twist.vel_quat[1], tracker_twist.vel_quat[2],
+                                             tracker_twist.vel_quat[3]));
+      
+      double d_roll, d_pitch, d_yaw;
+      rot_mat.getRPY(d_roll, d_pitch, d_yaw);
 
       double roll, pitch, yaw;
-      tf2::Matrix3x3 rot_mat(
-          tf2::Quaternion(tracker_twist.vel_quat[0], tracker_twist.vel_quat[1], tracker_twist.vel_quat[2],
-                          tracker_twist.vel_quat[3]));
-      rot_mat.getRPY(roll, pitch, yaw);
+      roll = d_roll / tracker_twist.vel_quat_dt;
+      pitch = d_pitch / tracker_twist.vel_quat_dt;
+      yaw = d_yaw / tracker_twist.vel_quat_dt;
 
-      tracker->twist_msg_.twist.angular.x = roll;
-      tracker->twist_msg_.twist.angular.y = pitch;
-      tracker->twist_msg_.twist.angular.z = yaw;
+      if (tracker->twist_accel_in_body_frame_) {
+        // Linear twist in the world frame
+        tf2::Vector3 linear_twist(tracker_twist.vel[0], tracker_twist.vel[1], tracker_twist.vel[2]);
+        
+        // Angular twist in the world frame
+        tf2::Vector3 angular_twist(roll, pitch, yaw);
+        
+        // Transformation from world to body frame
+        tf2::Quaternion world_to_body(tracker->transform_stamped_.transform.rotation.x,
+                                      tracker->transform_stamped_.transform.rotation.y,
+                                      tracker->transform_stamped_.transform.rotation.z,
+                                      tracker->transform_stamped_.transform.rotation.w);
+        
+        // Transform linear twist to body frame
+        tf2::Vector3 linear_twist_body = tf2::quatRotate(world_to_body.inverse(), linear_twist);
+        
+        // Transform angular twist to body frame
+        tf2::Vector3 angular_twist_body = tf2::quatRotate(world_to_body.inverse(), angular_twist);
+        
+        // Setting the transformed values to the twist message
+        tracker->twist_msg_.twist.linear.x = linear_twist_body.x();
+        tracker->twist_msg_.twist.linear.y = linear_twist_body.y();
+        tracker->twist_msg_.twist.linear.z = linear_twist_body.z();
 
+        tracker->twist_msg_.twist.angular.x = angular_twist_body.x();
+        tracker->twist_msg_.twist.angular.y = angular_twist_body.y();
+        tracker->twist_msg_.twist.angular.z = angular_twist_body.z();
+        
+      } else {
+        tracker->twist_msg_.twist.linear.x = tracker_twist.vel[0];
+        tracker->twist_msg_.twist.linear.y = tracker_twist.vel[1];
+        tracker->twist_msg_.twist.linear.z = tracker_twist.vel[2];
+
+        tracker->twist_msg_.twist.angular.x = roll;
+        tracker->twist_msg_.twist.angular.y = pitch;
+        tracker->twist_msg_.twist.angular.z = yaw;
+      }
+
+      // Publish the twist message
       twist_pub->publish(tracker->twist_msg_);
     }
   }
@@ -313,6 +367,10 @@ namespace vrpn_client_ros
     {
       sensor_index = static_cast<std::size_t>(tracker_accel.sensor);
       nh = ros::NodeHandle(tracker->output_nh_, std::to_string(tracker_accel.sensor));
+      
+      if (tracker->twist_accel_in_body_frame_) {
+        tracker->accel_msg_.header.frame_id = tracker->tracker_name + "/" + std::to_string(tracker_accel.sensor);
+      }
     }
     
     if (tracker->accel_pubs_.size() <= sensor_index)
@@ -338,20 +396,56 @@ namespace vrpn_client_ros
         tracker->accel_msg_.header.stamp = ros::Time::now();
       }
 
-      tracker->accel_msg_.accel.linear.x = tracker_accel.acc[0];
-      tracker->accel_msg_.accel.linear.y = tracker_accel.acc[1];
-      tracker->accel_msg_.accel.linear.z = tracker_accel.acc[2];
+      tf2::Matrix3x3 rot_mat(tf2::Quaternion(tracker_accel.acc_quat[0], tracker_accel.acc_quat[1], tracker_accel.acc_quat[2],
+                                             tracker_accel.acc_quat[3]));
+      
+      double d_roll, d_pitch, d_yaw;
+      rot_mat.getRPY(d_roll, d_pitch, d_yaw);
 
       double roll, pitch, yaw;
-      tf2::Matrix3x3 rot_mat(
-          tf2::Quaternion(tracker_accel.acc_quat[0], tracker_accel.acc_quat[1], tracker_accel.acc_quat[2],
-                          tracker_accel.acc_quat[3]));
-      rot_mat.getRPY(roll, pitch, yaw);
+      roll = d_roll / tracker_accel.acc_quat_dt;
+      pitch = d_pitch / tracker_accel.acc_quat_dt;
+      yaw = d_yaw / tracker_accel.acc_quat_dt;
 
-      tracker->accel_msg_.accel.angular.x = roll;
-      tracker->accel_msg_.accel.angular.y = pitch;
-      tracker->accel_msg_.accel.angular.z = yaw;
+      if (tracker->twist_accel_in_body_frame_) {
+        // Linear acceleration in the world frame
+        tf2::Vector3 linear_accel(tracker_accel.acc[0], tracker_accel.acc[1], tracker_accel.acc[2]);
+        
+        // Angular acceleration in the world frame
+        tf2::Vector3 angular_accel(roll, pitch, yaw);
+        
+        // Transformation from world to body frame
+        tf2::Quaternion world_to_body(tracker->transform_stamped_.transform.rotation.x,
+                                      tracker->transform_stamped_.transform.rotation.y,
+                                      tracker->transform_stamped_.transform.rotation.z,
+                                      tracker->transform_stamped_.transform.rotation.w);
+        
+        // Transform linear acceleration to body frame
+        tf2::Vector3 linear_accel_body = tf2::quatRotate(world_to_body.inverse(), linear_accel);
+        
+        // Transform angular acceleration to body frame
+        tf2::Vector3 angular_accel_body = tf2::quatRotate(world_to_body.inverse(), angular_accel);
+        
+        // Setting the transformed values to the twist message
+        tracker->accel_msg_.accel.linear.x = linear_accel_body.x();
+        tracker->accel_msg_.accel.linear.y = linear_accel_body.y();
+        tracker->accel_msg_.accel.linear.z = linear_accel_body.z();
 
+        tracker->accel_msg_.accel.angular.x = angular_accel_body.x();
+        tracker->accel_msg_.accel.angular.y = angular_accel_body.y();
+        tracker->accel_msg_.accel.angular.z = angular_accel_body.z();
+        
+      } else {
+        tracker->accel_msg_.accel.linear.x = tracker_accel.acc[0];
+        tracker->accel_msg_.accel.linear.y = tracker_accel.acc[1];
+        tracker->accel_msg_.accel.linear.z = tracker_accel.acc[2];
+
+        tracker->accel_msg_.accel.angular.x = roll;
+        tracker->accel_msg_.accel.angular.y = pitch;
+        tracker->accel_msg_.accel.angular.z = yaw;
+      }
+
+      // Publish the acceleration message
       accel_pub->publish(tracker->accel_msg_);
     }
   }
