@@ -81,7 +81,7 @@ namespace vrpn_client_ros
     TrackerRemotePtr tracker_remote_;
     std::vector<ros::Publisher> pose_pubs_, twist_pubs_, accel_pubs_, odom_pubs_;
     ros::NodeHandle output_nh_;
-    bool use_server_time_, broadcast_tf_, process_sensor_id_;
+    bool use_server_time_, broadcast_tf_, process_sensor_id_, twist_accel_in_body_frame_;
     std::string tracker_name;
 
     ros::Timer mainloop_timer;
