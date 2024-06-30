@@ -381,7 +381,7 @@ namespace vrpn_client_ros
 
     if (accel_pub->getTopic().empty())
     {
-      *accel_pub = nh.advertise<geometry_msgs::TwistStamped>("accel", 1);
+      *accel_pub = nh.advertise<geometry_msgs::AccelStamped>("accel", 1);
     }
 
     // if (accel_pub->getNumSubscribers() > 0)
